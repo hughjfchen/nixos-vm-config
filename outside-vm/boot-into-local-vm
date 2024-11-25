@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+trap 'echo "Error occurred on line $LINENO: $BASH_COMMAND (exit code: $?)" && exit 1' ERR
+trap 'exit $?' EXIT
+
+# init the default value for env variables
+: "${USERNAME:=$USER}"
+: "${OSNAME:=NixOS}"
+: "${REBOOT:=True}"
+
+VMS=$(utmctl list | awk '{ if ($1 != "UUID" && $NF != "Name") {print $NF} }')
+VMS_NUM=$(printf "%s" "$VMS" | wc -w | tr -d ' ')
+case "$VMS_NUM" in
+  0)
+    printf "No VM found, please create a VM first"
+    exit 0
+    ;;
+  1)
+    OSNAME="$VMS"
+    ;;
+  *)
+    printf "%s\n" "Multi VMs found, please specify which one you want to boot into with the command 'MY_OSNAME=<the VM name> $0'"
+    printf "Following is the VM list: %s\n" "$VMS"
+    exit 0
+    ;;
+esac
+
+[ -n "${MY_USERNAME-}" ] && USERNAME="$MY_USERNAME"
+[ -n "${MY_OSNAME-}" ] && OSNAME="$MY_OSNAME"
+[ -n "${MY_REBOOT-}" ] && REBOOT="$MY_REBOOT"
+
+VM_STATUS=$(utmctl status "$OSNAME")
+case "$VM_STATUS" in
+  "started")
+    # restart it, in case of changing network, unless specify not to
+    if [ "$REBOOT" == "True" ]; then
+      utmctl stop "$OSNAME"
+      sleep 1
+      utmctl start "$OSNAME"
+    else
+      true
+    fi
+    ;;
+  "stopped")
+    utmctl start "$OSNAME"
+    ;;
+  *)
+    printf "%s\n" "Unknown status: " "$VM_STATUS"
+    printf "%s\n" "abort"
+    exit 1
+esac
+
+# give some time for the VM finishing start
+if [ "$REBOOT" == "True" ]; then
+  # wait some time and let it send out the IP
+  sleep 3
+else
+  true
+fi
+
+# fetch the IP address of the local VM from shared folder where the VM will put
+# its IP once it boots.
+VM_NAME_LOWERCASE=$(echo "$OSNAME" | tr '[:upper:]' '[:lower:]')
+if [ -f ~/.the.vm.ipv6.address."${VM_NAME_LOWERCASE}" ]; then
+    THE_LOCAL_VM_IPv6=$(cat ~/.the.vm.ipv6.address."${VM_NAME_LOWERCASE}")
+else
+    THE_LOCAL_VM_IPv6=""
+fi
+if [ -f ~/.the.vm.ipv4.address."${VM_NAME_LOWERCASE}" ]; then
+    THE_LOCAL_VM_IPv4=$(cat ~/.the.vm.ipv4.address."${VM_NAME_LOWERCASE}")
+else
+    THE_LOCAL_VM_IPv4=""
+fi
+
+#if ping6 -c1 -n -q "$THE_LOCAL_VM_IPv6" > /dev/null 2>&1; then
+if [ -n "$THE_LOCAL_VM_IPv6" ]; then
+  ssh -o StrictHostKeyChecking=accept-new "$USERNAME"@"$THE_LOCAL_VM_IPv6"
+elif [ -n "$THE_LOCAL_VM_IPv4" ]; then
+  ssh -o StrictHostKeyChecking=accept-new "$USERNAME"@"$THE_LOCAL_VM_IPv4"
+else
+  echo "cannot ssh into the VM with following IP, please check"
+  echo "IPv6: $THE_LOCAL_VM_IPv6"
+  echo "IPv4: $THE_LOCAL_VM_IPv4"
+  exit 110
+fi
+

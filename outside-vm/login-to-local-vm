@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+trap 'echo "Error occurred on line $LINENO: $BASH_COMMAND (exit code: $?)" && exit 1' ERR
+
+REBOOT=False "$(dirname $0)"/boot-into-local-vm

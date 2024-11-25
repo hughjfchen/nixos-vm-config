@@ -1,0 +1,12 @@
+#+title: Config and Scripts for NixOS UTM VM on macOS
+#+author: Hugh JF Chen
+#+date: 2024-11-25
+#+PANDOC_OPTIONS: table-of-contents:t number-sections:t reference-doc:~/documents/template/pandoc-reference.docx
+
+* What is it
+
+This repo provides the configuration for a NixOS UTM VM on macOS.
+
+* Why this?
+
+I wonder this question too.
