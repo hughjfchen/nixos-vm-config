@@ -10,3 +10,14 @@ This repo provides the configuration for a NixOS UTM VM on macOS.
 * Why this?
 
 I wonder this question too.
+
+* Requirements for the VM
+
+** Must have
+
+This *netowrk* type of the VM must be *shared*, instead of *bridged*.
+
+** Nicd to have
+
+The *display* can be removed so that you can use the command line
+tool *utmctl* to start/stop the VM.
