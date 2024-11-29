@@ -52,6 +52,7 @@ in {
   environment.systemPackages = with pkgs; [
     git # used by nix flakes
     wget
+    mosh
     sshuttle
 
     btop # monitor system resources
@@ -167,6 +168,7 @@ in {
     serviceConfig = {
       Type = "oneshot";
       User = "${username}";
+      ExecStartPre = "${pkgs.coreutils-full}/bin/sleep 3";
     };
   };
 
@@ -192,20 +194,35 @@ in {
   systemd.services."check-sshuttle-tunnel" = {
     script = ''
       set -eu
-      ${pkgs.curl}/bin/curl https://www.twitter.com
+      if ${pkgs.curl}/bin/curl --connect-timeout 3 https://www.twitter.com > /dev/null 2>&1; then
+        echo "can access internet through sshuttle"
+      else
+        if ${pkgs.curl}/bin/curl --connect-timeout 3 https://detachment-soft.top > /dev/null 2>&1; then
+          echo "cannot access internet through sshuttle"
+          echo "but can access internet directly"
+          echo "so try to restart the sshuttle service to see if this problem solved"
+          ${pkgs.systemd}/bin/systemctl restart sshuttle.service
+        else
+          # not sure what to do in this case, ignore for now
+          echo "cannot access internet through sshuttle"
+          echo "cannot access internet directly either"
+          echo "maybe really cannot access outside world due to network offline"
+          echo "so do nothing for now"
+        fi
+      fi
     '';
     serviceConfig = {
       Type = "oneshot";
-      User = "chenjf";
     };
   };
 
   systemd.timers."check-sshuttle-tunnel" = {
     wantedBy = [ "timers.target" ];
       timerConfig = {
-        OnBootSec = "15m";
-        OnUnitActiveSec = "15m";
+        OnBootSec = "3m";
+        OnUnitActiveSec = "3m";
         Unit = "check-sshuttle-tunnel.service";
       };
   };
 }
+
