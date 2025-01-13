@@ -16,6 +16,7 @@ in {
   imports =
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
+      ./myrabbitmq.nix
     ];
 
   # Use the systemd-boot EFI boot loader.
@@ -27,7 +28,7 @@ in {
   fileSystems."/home/${username}/macHome" =
     { device = "share";
       fsType = "virtiofs";
-      options = [ "rw,nofail" ];
+      options = [ "rw,nofail,noexec" ];
     };
 
   # nix settings
@@ -36,11 +37,9 @@ in {
     # Binary Cache for Haskell.nix
     trusted-public-keys = [
       "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ="
-      "loony-tools:pr9m4BkM/5/eSTZlkQyRt57Jz7OMBxNSUiMC4FkcNfk="
     ];
     substituters = [
       "https://cache.iog.io"
-      "https://cache.zw3rk.com"
     ];
   };
 
@@ -59,6 +58,7 @@ in {
 
     # some utils
     file
+    binutils
     tree
     psmisc
     jq
@@ -79,15 +79,19 @@ in {
     noto-fonts-emoji
   ];
 
+  # Disable IPv6 to test Cloud Haskell
+  networking.enableIPv6  = false;
+
   # add some extra hosts I known off
   networking.extraHosts =
     ''
+      127.0.0.1 cjfhost
       104.208.72.114 detachmentsoft.top
       209.145.56.16 detachment-soft.top
     '';
 
   # Open ports in the firewall.
-  networking.firewall.allowedTCPPorts = [ 22 80 443 8883 ];
+  networking.firewall.allowedTCPPorts = [ 22 80 443 8883 5432 4369 5672 15672 25672 35672 35197 12300 22222 33333 44444 ];
   # networking.firewall.allowedUDPPorts = [ ... ];
   # Or disable the firewall altogether.
   # networking.firewall.enable = false;
@@ -100,6 +104,21 @@ in {
       PasswordAuthentication = lib.mkDefault true;
     };
     openFirewall = lib.mkDefault true;
+  };
+
+  # also set epmd to listen to IPv4
+  services.epmd.listenStream = "0.0.0.0:4369";
+
+  # rabbitmq
+  services.myrabbitmq = {
+    enable = lib.mkDefault true;
+    managementPlugin.enable = lib.mkDefault true;
+    nodename = "rabbit1@cjfhost";
+  };
+
+  # postgresql
+  services.postgresql = {
+    enable = lib.mkDefault true;
   };
 
   # =========================================================================
@@ -182,7 +201,7 @@ in {
       LOCAL_ADDRESS=$(${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet") | .local')
       SUBNET_PRE_LENGTH=$(${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --arg JQ_LOCAL_ADDRESS "$LOCAL_ADDRESS" --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet" and .local==$JQ_LOCAL_ADDRESS) | .prefixlen')
       SUBNET_ADDRESS=$(${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet") | .local' | ${pkgs.gawk}/bin/awk -F'.' '{print $1"."$2"."$3".""0"}')
-      ${pkgs.sshuttle}/bin/sshuttle -x $SUBNET_ADDRESS/$SUBNET_PRE_LENGTH -x detachmentsoft.top -x detachment-soft.top --latency-buffer-size 65536 --dns -r chenjf@detachmentsoft.top 0/0
+      ${pkgs.sshuttle}/bin/sshuttle -x $SUBNET_ADDRESS/$SUBNET_PRE_LENGTH -x detachmentsoft.top -x detachment-soft.top --latency-buffer-size 65536 --disable-ipv6 --dns -r root@detachment-soft.top 0/0
     '';
     serviceConfig = {
       Restart = "on-failure";

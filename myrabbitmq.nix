@@ -156,12 +156,7 @@ in
         default = "rabbit@localhost";
         type = lib.types.str;
         description = ''
-          The name of the RabbitMQ node.  This is used to identify
-          the node in a cluster.  If you are running multiple
-          RabbitMQ nodes on the same machine, you must give each
-          node a unique name.  The name must be of the form
-          `name@host`, where `name` is an arbitrary name and
-          `host` is the domain name of the host.
+          The nodename of the rabbitmq instance.
         '';
       };
 
