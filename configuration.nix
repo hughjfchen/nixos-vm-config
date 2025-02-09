@@ -56,6 +56,10 @@ in {
 
     btop # monitor system resources
 
+    # for terminal and ssh session
+    screen
+    reptyr
+
     # some utils
     file
     binutils
@@ -100,6 +104,8 @@ in {
   services.openssh = {
     enable = lib.mkDefault true;
     settings = {
+      ClientAliveInterval = 30;
+      TCPKeepAlive = true;
       X11Forwarding = lib.mkDefault true;
       PasswordAuthentication = lib.mkDefault true;
     };
