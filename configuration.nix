@@ -23,12 +23,20 @@ in {
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
+  # add following line to make fsType=fuse.bindfs happy
+  security.pam.mount.additionalSearchPaths = [ pkgs.bindfs ];
+
   # mount the share folder
+  fileSystems."/mnt/utmshare" = 
+    { device = "share";
+      fsType = "9p";
+      options = [ "trans=virtio,version=9p2000.L,rw,_netdev,nofail,noexec,auto" ];
+    };
 
   fileSystems."/home/${username}/macHome" =
-    { device = "share";
-      fsType = "virtiofs";
-      options = [ "rw,nofail,noexec" ];
+    { device = "/mnt/utmshare";
+      fsType = "fuse.bindfs";
+      options = [ "map=501/chenjf:@20/@100,x-systemd.requires=/mnt/utmshare,rw,_netdev,nofail,noexec,auto" ];
     };
 
   # nix settings
@@ -50,7 +58,9 @@ in {
   # $ nix search wget
   environment.systemPackages = with pkgs; [
     git # used by nix flakes
+    vim
     wget
+    bindfs
     mosh
     sshuttle
 
@@ -91,7 +101,7 @@ in {
     ''
       127.0.0.1 cjfhost
       104.208.72.114 detachmentsoft.top
-      209.145.56.16 detachment-soft.top
+      194.233.66.103 detachment-soft.top
     '';
 
   # Open ports in the firewall.
@@ -113,19 +123,19 @@ in {
   };
 
   # also set epmd to listen to IPv4
-  services.epmd.listenStream = "0.0.0.0:4369";
+  #services.epmd.listenStream = "0.0.0.0:4369";
 
   # rabbitmq
-  services.myrabbitmq = {
-    enable = lib.mkDefault true;
-    managementPlugin.enable = lib.mkDefault true;
-    nodename = "rabbit1@cjfhost";
-  };
+  #services.myrabbitmq = {
+  #  enable = lib.mkDefault true;
+  #  managementPlugin.enable = lib.mkDefault true;
+  #  nodename = "rabbit1@cjfhost";
+  #};
 
   # postgresql
-  services.postgresql = {
-    enable = lib.mkDefault true;
-  };
+  #services.postgresql = {
+  #  enable = lib.mkDefault true;
+  #};
 
   # =========================================================================
   #      Users & Groups NixOS Configuration
@@ -137,11 +147,13 @@ in {
     isNormalUser = true;
     home = "/home/${username}";
     extraGroups = ["users" "wheel"];
+
+    # add pub key for ssh to login
+    openssh.authorizedKeys.keys = [
+      publickey
+    ];
   };
 
-  #users.users."${username}".openssh.authorizedKeys.keys = [
-  #  publickey
-  #];
   users.users.root.openssh.authorizedKeys.keys = [
     publickey
   ];
@@ -177,7 +189,7 @@ in {
   # this value at the release version of the first install of this system.
   # Before changing this value read the documentation for this option
   # (e.g. man configuration.nix or on https://nixos.org/nixos/options.html).
-  system.stateVersion = "24.05"; # Did you read the comment?
+  system.stateVersion = "24.11"; # Did you read the comment?
 
 
   # add a service unit to save out the IP address so that tools from outside
@@ -185,14 +197,13 @@ in {
   systemd.services.save-out-my-ip = {
     description = "save out the IP address to a mounted shared folder";
     wantedBy = [ "multi-user.target" ]; # starts after login
-    after = [ "network-online.target" ];
-    wants = [ "network-online.target" ];
+    after = [ "mnt-utmshare.mount" "network-online.target" ];
+    wants = [ "mnt-utmshare.mount" "network-online.target" ];
     script = ''
-      [ -d "/home/${username}/macHome/${username}" ] && ${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet") | .local' > "/home/${username}/macHome/${username}/.the.vm.ipv4.address.$(${pkgs.nettools}/bin/hostname)"
+      [ -d "/mnt/utmshare" ] && ${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet") | .local' > "/mnt/utmshare/.the.vm.ipv4.address.$(${pkgs.nettools}/bin/hostname)"
     '';
     serviceConfig = {
       Type = "oneshot";
-      User = "${username}";
       ExecStartPre = "${pkgs.coreutils-full}/bin/sleep 3";
     };
   };
@@ -201,16 +212,38 @@ in {
   systemd.services.sshuttle = {
     description = "the poor man's VPN";
     wantedBy = [ "multi-user.target" ]; # starts after login
-    after = [ "network-online.target" ];
-    wants = [ "network-online.target" ];
+    after = [ "mnt-utmshare.mount" "network-online.target" ];
+    wants = [ "mnt-utmshare.mount" "network-online.target" ];
     script = ''
+      # prepare the private key for ssh connection
+      if [ -f "/root/.ssh/id_rsa" ]; then
+        echo "ssh private key already on the VM, skip trying to locate it"
+      else
+        echo "No ssh private key on the VM ssh folder"
+        echo "Will try to locate ssh private key from the host ssh folder"
+        if [ -f "/mnt/utmshare/.ssh/id_rsa" ]; then
+          mkdir -p /root/.ssh
+          cp /mnt/utmshare/.ssh/id_rsa.pub /root/.ssh/
+          cp /mnt/utmshare/.ssh/id_rsa /root/.ssh/
+          cp /mnt/utmshare/.ssh/known_hosts /root/.ssh/
+          chmod 700 /root/.ssh
+          chmod 600 /root/.ssh/id_rsa /root/.ssh/known_hosts
+          chmod 644 /root/.ssh/id_rsa.pub
+        else
+          echo "No ssh private key on the mounted host ssh folder, cannot continue"
+	  exit 111
+        fi
+      fi
+
       LOCAL_ADDRESS=$(${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet") | .local')
       SUBNET_PRE_LENGTH=$(${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --arg JQ_LOCAL_ADDRESS "$LOCAL_ADDRESS" --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet" and .local==$JQ_LOCAL_ADDRESS) | .prefixlen')
       SUBNET_ADDRESS=$(${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet") | .local' | ${pkgs.gawk}/bin/awk -F'.' '{print $1"."$2"."$3".""0"}')
-      ${pkgs.sshuttle}/bin/sshuttle -x $SUBNET_ADDRESS/$SUBNET_PRE_LENGTH -x detachmentsoft.top -x detachment-soft.top --latency-buffer-size 65536 --disable-ipv6 --dns -r root@detachment-soft.top 0/0
+      ${pkgs.sshuttle}/bin/sshuttle -x $SUBNET_ADDRESS/$SUBNET_PRE_LENGTH -x detachmentsoft.top -x detachment-soft.top --latency-buffer-size 65536 --disable-ipv6 --dns -r chenjf@detachmentsoft.top 0/0
     '';
     serviceConfig = {
       Restart = "on-failure";
+      StartLimitIntervalSec=30;
+      StartLimitBurst=5;
       ExecStartPre = "${pkgs.coreutils-full}/bin/sleep 1";
     };
   };
