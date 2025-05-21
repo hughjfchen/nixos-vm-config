@@ -15,7 +15,9 @@ I wonder this question too.
 
 ** Must have
 
-This *netowrk* type of the VM must be *shared*, instead of *bridged*.
+- Network :: This *netowrk* type of the VM must be *shared*, instead of *bridged*.
+- Share :: The host machine must share the host user's home folder
+- SSH Key :: The ssh keys, including public and private keys, must under the .ssh directory of the home folder.
 
 ** Nicd to have
 
