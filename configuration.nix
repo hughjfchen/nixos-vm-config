@@ -27,16 +27,16 @@ in {
   security.pam.mount.additionalSearchPaths = [ pkgs.bindfs ];
 
   # mount the share folder
-  fileSystems."/mnt/utmshare" = 
-    { device = "share";
-      fsType = "9p";
-      options = [ "trans=virtio,version=9p2000.L,rw,_netdev,nofail,noexec,auto" ];
-    };
+  #fileSystems."/mnt/utmshare" = 
+  #  { device = "share";
+  #    fsType = "9p";
+  #    options = [ "trans=virtio,version=9p2000.L,rw,_netdev,nofail,noexec,auto" ];
+  #  };
 
   fileSystems."/home/${username}/macHome" =
-    { device = "/mnt/utmshare";
-      fsType = "fuse.bindfs";
-      options = [ "map=501/chenjf:@20/@100,x-systemd.requires=/mnt/utmshare,rw,_netdev,nofail,noexec,auto" ];
+    { device = "share";
+      fsType = "virtiofs";
+      options = [ "rw,nofail,noexec,auto" ];
     };
 
   # nix settings
@@ -200,7 +200,7 @@ in {
     after = [ "mnt-utmshare.mount" "network-online.target" ];
     wants = [ "mnt-utmshare.mount" "network-online.target" ];
     script = ''
-      [ -d "/mnt/utmshare" ] && ${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet") | .local' > "/mnt/utmshare/.the.vm.ipv4.address.$(${pkgs.nettools}/bin/hostname)"
+      [ -d "/home/${username}/macHome/${username}" ] && ${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet") | .local' > "/home/${username}/macHome/${username}/.the.vm.ipv4.address.$(${pkgs.nettools}/bin/hostname)"
     '';
     serviceConfig = {
       Type = "oneshot";
@@ -221,11 +221,11 @@ in {
       else
         echo "No ssh private key on the VM ssh folder"
         echo "Will try to locate ssh private key from the host ssh folder"
-        if [ -f "/mnt/utmshare/.ssh/id_rsa" ]; then
+        if [ -f "/home/${username}/macHome/${username}/.ssh/id_rsa" ]; then
           mkdir -p /root/.ssh
-          cp /mnt/utmshare/.ssh/id_rsa.pub /root/.ssh/
-          cp /mnt/utmshare/.ssh/id_rsa /root/.ssh/
-          cp /mnt/utmshare/.ssh/known_hosts /root/.ssh/
+          cp /home/${username}/macHome/${username}/.ssh/id_rsa.pub /root/.ssh/
+          cp /home/${username}/macHome/${username}/.ssh/id_rsa /root/.ssh/
+          cp /home/${username}/macHome/${username}/.ssh/known_hosts /root/.ssh/
           chmod 700 /root/.ssh
           chmod 600 /root/.ssh/id_rsa /root/.ssh/known_hosts
           chmod 644 /root/.ssh/id_rsa.pub
@@ -238,7 +238,7 @@ in {
       LOCAL_ADDRESS=$(${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet") | .local')
       SUBNET_PRE_LENGTH=$(${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --arg JQ_LOCAL_ADDRESS "$LOCAL_ADDRESS" --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet" and .local==$JQ_LOCAL_ADDRESS) | .prefixlen')
       SUBNET_ADDRESS=$(${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet") | .local' | ${pkgs.gawk}/bin/awk -F'.' '{print $1"."$2"."$3".""0"}')
-      ${pkgs.sshuttle}/bin/sshuttle -x $SUBNET_ADDRESS/$SUBNET_PRE_LENGTH -x detachmentsoft.top -x detachment-soft.top --latency-buffer-size 65536 --disable-ipv6 --dns -r chenjf@detachmentsoft.top 0/0
+      ${pkgs.sshuttle}/bin/sshuttle -x $SUBNET_ADDRESS/$SUBNET_PRE_LENGTH -x detachmentsoft.top -x detachment-soft.top --latency-buffer-size 65536 --disable-ipv6 --dns -r chenjf@detachment-soft.top 0/0
     '';
     serviceConfig = {
       Restart = "on-failure";
