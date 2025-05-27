@@ -15,9 +15,12 @@ I wonder this question too.
 
 ** Must have
 
+- VM Type :: Must use apple Virtualization, not ~QEMU~
 - Network :: This *netowrk* type of the VM must be *shared*, instead of *bridged*.
-- Share :: The host machine must share the host user's home folder
+- Share :: The host machine must share the host user's home folder with ~virtiofs~ type.
+  (Still not sure how to solve the UID/GID problem with the mounted filesystem)
 - SSH Key :: The ssh keys, including public and private keys, must under the .ssh directory of the home folder.
+  (Provided that the ~share~ Requirement met as above)
 
 ** Nicd to have
 
