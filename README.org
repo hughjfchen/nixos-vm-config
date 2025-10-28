@@ -1,7 +1,7 @@
 #+title: Config and Scripts for NixOS UTM VM on macOS
 #+author: Hugh JF Chen
 #+date: 2024-11-25
-#+PANDOC_OPTIONS: table-of-contents:t number-sections:t reference-doc:~/documents/template/pandoc-reference.docx
+#+PANDOC_OPTIONS: table-of-contents:t reference-doc:~/documents/template/pandoc-reference.docx
 
 * What is it
 
@@ -17,12 +17,12 @@ I wonder this question too.
 
 - VM Type :: Must use apple Virtualization, not ~QEMU~
 - Network :: This *netowrk* type of the VM must be *shared*, instead of *bridged*.
-- Share :: The host machine must share the host user's home folder with ~virtiofs~ type.
+- Share :: The host machine must share the host user's home folder with ~virtiofs~ type and mount it under =<guest-user-home>/macHome=.
   (Still not sure how to solve the UID/GID problem with the mounted filesystem)
-- SSH Key :: The ssh keys, including public and private keys, must under the .ssh directory of the home folder.
+- SSH Key :: The ssh keys, including public and private keys, must under the .ssh directory of the home folder of the host machine.
   (Provided that the ~share~ Requirement met as above)
 
-** Nicd to have
+** Nice to have
 
 The *display* can be removed so that you can use the command line
 tool *utmctl* to start/stop the VM.
