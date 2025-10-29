@@ -63,6 +63,7 @@ in {
     bindfs
     mosh
     sshuttle
+    trojan-go
 
     btop # monitor system resources
 
@@ -191,6 +192,47 @@ in {
   # (e.g. man configuration.nix or on https://nixos.org/nixos/options.html).
   system.stateVersion = "24.11"; # Did you read the comment?
 
+
+  # setup trojan-go
+  # add a service unit to start the trojan-go client daemon
+  systemd.services.trojan-go = let
+    my-trojan-go-config = {
+      run_type = "client";
+      local_addr = "127.0.0.1";
+      local_port = 1080;
+      remote_addr = "10.10.10.1";
+      remote_port = 443;
+      password = [ "Passw0rd" ];
+      ssl = {
+        sni = "www.detachmentsoft.top";
+      };
+      router = {
+        enabled = true;
+        bypass = [ "geoip:cn" "geoip:private" "geosite:cn" "geosite:geolocation-cn" ];
+        block = [ "geosite:category-ads" ];
+        proxy = [ "geosite:geolocation-!cn" ];
+        geoip = "${pkgs.v2ray-geoip}/share/v2ray/geoip.dat";
+        geosite = "${pkgs.v2ray-domain-list-community}/share/v2ray/geosite.dat";
+      };
+    };
+    my-trojan-go-config-file = pkgs.writeTextFile { name = "my-trojan-go-config-file"; text = builtins.toJSON my-trojan-go-config; };
+  in
+   {
+    description = "the trojan-go proxy";
+    wantedBy = [ "multi-user.target" ]; # starts after login
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    script = ''
+      # start the trojan-go with the above config
+      ${pkgs.trojan-go}/bin/trojan-go -config ${my-trojan-go-config-file}
+    '';
+    serviceConfig = {
+      Restart = "on-failure";
+      StartLimitIntervalSec=30;
+      StartLimitBurst=5;
+      ExecStartPre = "${pkgs.coreutils-full}/bin/sleep 1";
+    };
+   };
 
   # add a service unit to save out the IP address so that tools from outside
   # can use it
