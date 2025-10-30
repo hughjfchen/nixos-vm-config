@@ -16,7 +16,7 @@ in {
   imports =
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
-      ./myrabbitmq.nix
+      # ./myrabbitmq.nix
     ];
 
   # Use the systemd-boot EFI boot loader.
@@ -27,16 +27,16 @@ in {
   security.pam.mount.additionalSearchPaths = [ pkgs.bindfs ];
 
   # mount the share folder
-  #fileSystems."/mnt/utmshare" = 
-  #  { device = "share";
-  #    fsType = "9p";
-  #    options = [ "trans=virtio,version=9p2000.L,rw,_netdev,nofail,noexec,auto" ];
-  #  };
+  fileSystems."/mnt/utm" = 
+    { device = "share";
+      fsType = "9p";
+      options = [ "trans=virtio,version=9p2000.L,rw,_netdev,nofail,noexec,auto" ];
+    };
 
   fileSystems."/home/${username}/macHome" =
-    { device = "share";
-      fsType = "virtiofs";
-      options = [ "rw,nofail,noexec,auto" ];
+    { device = "/mnt/utm";
+      fsType = "fuse.bindfs";
+      options = [ "map=501/1000:@20/@100,x-systemd.requires=/mnt/utm,_netdev,nofail,noexec,auto" ];
     };
 
   # nix settings
@@ -47,6 +47,7 @@ in {
       "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ="
     ];
     substituters = [
+      "https://mirrors.tuna.tsinghua.edu.cn/nix-channels/store"
       "https://cache.iog.io"
     ];
   };
@@ -97,11 +98,13 @@ in {
   # Disable IPv6 to test Cloud Haskell
   networking.enableIPv6  = false;
 
+  networking.nameservers = [ "1.1.1.1" "8.8.8.8" ];
+
   # add some extra hosts I known off
   networking.extraHosts =
     ''
       127.0.0.1 cjfhost
-      104.208.72.114 detachmentsoft.top
+      68.64.178.54 detachmentsoft.top
       194.233.66.103 detachment-soft.top
     '';
 
@@ -111,6 +114,8 @@ in {
   # Or disable the firewall altogether.
   # networking.firewall.enable = false;
   # Enable the OpenSSH daemon.
+  networking.proxy.default = "http:/127.0.0.1:1080";
+  networking.proxy.noProxy = "127.0.0.1,localhost";
 
   services.openssh = {
     enable = lib.mkDefault true;
@@ -190,7 +195,7 @@ in {
   # this value at the release version of the first install of this system.
   # Before changing this value read the documentation for this option
   # (e.g. man configuration.nix or on https://nixos.org/nixos/options.html).
-  system.stateVersion = "24.11"; # Did you read the comment?
+  system.stateVersion = "25.05"; # Did you read the comment?
 
 
   # setup trojan-go
@@ -200,7 +205,7 @@ in {
       run_type = "client";
       local_addr = "127.0.0.1";
       local_port = 1080;
-      remote_addr = "10.10.10.1";
+      remote_addr = "68.64.178.54";
       remote_port = 443;
       password = [ "Passw0rd" ];
       ssl = {
@@ -215,7 +220,7 @@ in {
         geosite = "${pkgs.v2ray-domain-list-community}/share/v2ray/geosite.dat";
       };
     };
-    my-trojan-go-config-file = pkgs.writeTextFile { name = "my-trojan-go-config-file"; text = builtins.toJSON my-trojan-go-config; };
+    my-trojan-go-config-file = pkgs.writeTextFile { name = "my-trojan-go-config-file.json"; text = builtins.toJSON my-trojan-go-config; };
   in
    {
     description = "the trojan-go proxy";
@@ -228,7 +233,6 @@ in {
     '';
     serviceConfig = {
       Restart = "on-failure";
-      StartLimitIntervalSec=30;
       StartLimitBurst=5;
       ExecStartPre = "${pkgs.coreutils-full}/bin/sleep 1";
     };
@@ -239,10 +243,10 @@ in {
   systemd.services.save-out-my-ip = {
     description = "save out the IP address to a mounted shared folder";
     wantedBy = [ "multi-user.target" ]; # starts after login
-    after = [ "mnt-utmshare.mount" "network-online.target" ];
-    wants = [ "mnt-utmshare.mount" "network-online.target" ];
+    after = [ "mnt-utm.mount" "network-online.target" ];
+    wants = [ "mnt-utm.mount" "network-online.target" ];
     script = ''
-      [ -d "/home/${username}/macHome/${username}" ] && ${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet") | .local' > "/home/${username}/macHome/${username}/.the.vm.ipv4.address.$(${pkgs.nettools}/bin/hostname)"
+      [ -d "/home/${username}/macHome" ] && ${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet") | .local' > "/home/${username}/macHome/.the.vm.ipv4.address.$(${pkgs.nettools}/bin/hostname)"
     '';
     serviceConfig = {
       Type = "oneshot";
@@ -251,78 +255,78 @@ in {
   };
 
   # add a service unit to start the sshuttle poor man's VPN service
-  systemd.services.sshuttle = {
-    description = "the poor man's VPN";
-    wantedBy = [ "multi-user.target" ]; # starts after login
-    after = [ "mnt-utmshare.mount" "network-online.target" ];
-    wants = [ "mnt-utmshare.mount" "network-online.target" ];
-    script = ''
-      # prepare the private key for ssh connection
-      if [ -f "/root/.ssh/id_rsa" ]; then
-        echo "ssh private key already on the VM, skip trying to locate it"
-      else
-        echo "No ssh private key on the VM ssh folder"
-        echo "Will try to locate ssh private key from the host ssh folder"
-        if [ -f "/home/${username}/macHome/${username}/.ssh/id_rsa" ]; then
-          mkdir -p /root/.ssh
-          cp /home/${username}/macHome/${username}/.ssh/id_rsa.pub /root/.ssh/
-          cp /home/${username}/macHome/${username}/.ssh/id_rsa /root/.ssh/
-          cp /home/${username}/macHome/${username}/.ssh/known_hosts /root/.ssh/
-          chmod 700 /root/.ssh
-          chmod 600 /root/.ssh/id_rsa /root/.ssh/known_hosts
-          chmod 644 /root/.ssh/id_rsa.pub
-        else
-          echo "No ssh private key on the mounted host ssh folder, cannot continue"
-	  exit 111
-        fi
-      fi
+  #systemd.services.sshuttle = {
+  #  description = "the poor man's VPN";
+  #  wantedBy = [ "multi-user.target" ]; # starts after login
+  #  after = [ "mnt-utmshare.mount" "network-online.target" ];
+  #  wants = [ "mnt-utmshare.mount" "network-online.target" ];
+  #  script = ''
+  #    # prepare the private key for ssh connection
+  #    if [ -f "/root/.ssh/id_rsa" ]; then
+  #      echo "ssh private key already on the VM, skip trying to locate it"
+  #    else
+  #      echo "No ssh private key on the VM ssh folder"
+  #      echo "Will try to locate ssh private key from the host ssh folder"
+  #      if [ -f "/home/${username}/macHome/${username}/.ssh/id_rsa" ]; then
+  #        mkdir -p /root/.ssh
+  #        cp /home/${username}/macHome/${username}/.ssh/id_rsa.pub /root/.ssh/
+  #        cp /home/${username}/macHome/${username}/.ssh/id_rsa /root/.ssh/
+  #        cp /home/${username}/macHome/${username}/.ssh/known_hosts /root/.ssh/
+  #        chmod 700 /root/.ssh
+  #        chmod 600 /root/.ssh/id_rsa /root/.ssh/known_hosts
+  #        chmod 644 /root/.ssh/id_rsa.pub
+  #      else
+  #        echo "No ssh private key on the mounted host ssh folder, cannot continue"
+  #	  exit 111
+  #      fi
+  #    fi
 
-      LOCAL_ADDRESS=$(${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet") | .local')
-      SUBNET_PRE_LENGTH=$(${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --arg JQ_LOCAL_ADDRESS "$LOCAL_ADDRESS" --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet" and .local==$JQ_LOCAL_ADDRESS) | .prefixlen')
-      SUBNET_ADDRESS=$(${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet") | .local' | ${pkgs.gawk}/bin/awk -F'.' '{print $1"."$2"."$3".""0"}')
-      ${pkgs.sshuttle}/bin/sshuttle -x $SUBNET_ADDRESS/$SUBNET_PRE_LENGTH -x detachmentsoft.top -x detachment-soft.top --latency-buffer-size 65536 --disable-ipv6 --dns -r chenjf@detachment-soft.top 0/0
-    '';
-    serviceConfig = {
-      Restart = "on-failure";
-      StartLimitIntervalSec=30;
-      StartLimitBurst=5;
-      ExecStartPre = "${pkgs.coreutils-full}/bin/sleep 1";
-    };
-  };
+  #    LOCAL_ADDRESS=$(${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet") | .local')
+  #    SUBNET_PRE_LENGTH=$(${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --arg JQ_LOCAL_ADDRESS "$LOCAL_ADDRESS" --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet" and .local==$JQ_LOCAL_ADDRESS) | .prefixlen')
+  #    SUBNET_ADDRESS=$(${pkgs.iproute2}/bin/ip -json address | ${pkgs.jq}/bin/jq --raw-output '.[] | select(.operstate=="UP") | .addr_info[] | select(.family=="inet") | .local' | ${pkgs.gawk}/bin/awk -F'.' '{print $1"."$2"."$3".""0"}')
+  #    ${pkgs.sshuttle}/bin/sshuttle -x $SUBNET_ADDRESS/$SUBNET_PRE_LENGTH -x detachmentsoft.top -x detachment-soft.top --latency-buffer-size 65536 --disable-ipv6 --dns -r chenjf@detachment-soft.top 0/0
+  #  '';
+  #  serviceConfig = {
+  #    Restart = "on-failure";
+  #    StartLimitIntervalSec=30;
+  #    StartLimitBurst=5;
+  #    ExecStartPre = "${pkgs.coreutils-full}/bin/sleep 1";
+  #  };
+  #};
 
   # add a periodly running command to make sshuttle tunnel active
-  systemd.services."check-sshuttle-tunnel" = {
-    script = ''
-      set -eu
-      if ${pkgs.curl}/bin/curl --connect-timeout 3 https://www.twitter.com > /dev/null 2>&1; then
-        echo "can access internet through sshuttle"
-      else
-        if ${pkgs.curl}/bin/curl --connect-timeout 3 https://detachment-soft.top > /dev/null 2>&1; then
-          echo "cannot access internet through sshuttle"
-          echo "but can access internet directly"
-          echo "so try to restart the sshuttle service to see if this problem solved"
-          ${pkgs.systemd}/bin/systemctl restart sshuttle.service
-        else
-          # not sure what to do in this case, ignore for now
-          echo "cannot access internet through sshuttle"
-          echo "cannot access internet directly either"
-          echo "maybe really cannot access outside world due to network offline"
-          echo "so do nothing for now"
-        fi
-      fi
-    '';
-    serviceConfig = {
-      Type = "oneshot";
-    };
-  };
+  #systemd.services."check-sshuttle-tunnel" = {
+  #  script = ''
+  #    set -eu
+  #    if ${pkgs.curl}/bin/curl --connect-timeout 3 https://www.twitter.com > /dev/null 2>&1; then
+  #      echo "can access internet through sshuttle"
+  #    else
+  #      if ${pkgs.curl}/bin/curl --connect-timeout 3 https://detachment-soft.top > /dev/null 2>&1; then
+  #        echo "cannot access internet through sshuttle"
+  #        echo "but can access internet directly"
+  #        echo "so try to restart the sshuttle service to see if this problem solved"
+  #        ${pkgs.systemd}/bin/systemctl restart sshuttle.service
+  #      else
+  #       # not sure what to do in this case, ignore for now
+  #        echo "cannot access internet through sshuttle"
+  #        echo "cannot access internet directly either"
+  #        echo "maybe really cannot access outside world due to network offline"
+  #        echo "so do nothing for now"
+  #      fi
+  #    fi
+  #  '';
+  #  serviceConfig = {
+  #    Type = "oneshot";
+  #  };
+  #};
 
-  systemd.timers."check-sshuttle-tunnel" = {
-    wantedBy = [ "timers.target" ];
-      timerConfig = {
-        OnBootSec = "3m";
-        OnUnitActiveSec = "3m";
-        Unit = "check-sshuttle-tunnel.service";
-      };
-  };
+  # systemd.timers."check-sshuttle-tunnel" = {
+  #  wantedBy = [ "timers.target" ];
+  #    timerConfig = {
+  #      OnBootSec = "3m";
+  #      OnUnitActiveSec = "3m";
+  #      Unit = "check-sshuttle-tunnel.service";
+  #    };
+  #};
 }
 

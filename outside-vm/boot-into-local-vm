@@ -10,7 +10,12 @@ trap 'exit $?' EXIT
 : "${OSNAME:=NixOS}"
 : "${REBOOT:=True}"
 
-VMS=$(utmctl list | awk '{ if ($1 != "UUID" && $NF != "Name") {print $NF} }')
+[ -n "${MY_USERNAME-}" ] && USERNAME="$MY_USERNAME"
+[ -n "${MY_OSNAME-}" ] && OSNAME="$MY_OSNAME"
+[ -n "${MY_REBOOT-}" ] && REBOOT="$MY_REBOOT"
+
+
+VMS=$(utmctl list | awk -v osnameawk="$OSNAME" '{ if ($1 != "UUID" && $NF != "Name" && $NF == osnameawk ) {print $NF} }')
 VMS_NUM=$(printf "%s" "$VMS" | wc -w | tr -d ' ')
 case "$VMS_NUM" in
   0)
@@ -26,10 +31,6 @@ case "$VMS_NUM" in
     exit 0
     ;;
 esac
-
-[ -n "${MY_USERNAME-}" ] && USERNAME="$MY_USERNAME"
-[ -n "${MY_OSNAME-}" ] && OSNAME="$MY_OSNAME"
-[ -n "${MY_REBOOT-}" ] && REBOOT="$MY_REBOOT"
 
 VM_STATUS=$(utmctl status "$OSNAME")
 case "$VM_STATUS" in
